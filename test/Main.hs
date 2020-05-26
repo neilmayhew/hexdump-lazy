@@ -4,13 +4,22 @@ module Main where
 
 import Text.HexDump
 
+import Control.DeepSeq (force)
+import Control.Exception (evaluate)
+import Control.Monad (unless)
 import Data.ByteString (ByteString, useAsCStringLen)
-import Data.Foldable (for_, traverse_)
+import Data.Foldable (for_)
+import Data.List (intersperse)
 import Data.Word (Word8)
 import Foreign.Ptr (castPtr)
 import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrArray, withForeignPtr)
 import Foreign.Marshal.Array (advancePtr, copyArray, peekArray)
 import System.Exit
+import System.IO (hClose, hGetContents)
+import System.Process (CreateProcess(..), StdStream(..), proc, withCreateProcess)
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 
 testString :: ByteString
 testString = "\1\0\0\1*\0\0\2\3def\6pasta\7program\7program\4uuid\4uuid\f?\
@@ -53,12 +62,26 @@ makeBuffer bufferSize = do
 
 main :: IO ()
 main = do
-  traverse_ putStrLn $
-    hexDumpByteString testString
+  unless (hexDumpByteString testString == testResult)
+    exitFailure
+
+  dump <- useAsCStringLen testString $
+    uncurry hexDumpPtr
+
+  unless (dump == testResult)
+    exitFailure
+
+  external <- modelDump testString
+
+  unless (dump == external) $
+    die . unlines $ [""] ++ dump ++ ["vs"] ++ external
 
   let bufferSize = 1 * 1024 + 19
 
   buffer <- makeBuffer bufferSize
+
+  let dump0 = hexDumpWords . BL.unpack . BL.take (fromIntegral bufferSize) . BL.cycle
+        $ BL.fromStrict testString
 
   dump1 <- withForeignPtr buffer $ \ptr ->
     hexDumpPtr ptr bufferSize
@@ -66,8 +89,21 @@ main = do
   dump2 <- withForeignPtr buffer $
     fmap hexDumpWords . peekArray bufferSize
 
-  traverse_ putStrLn dump2
+  unless (dump0 == dump1 && dump1 == dump2)
+    exitFailure
 
-  if hexDumpByteString testString == testResult && dump1 == dump2
-    then exitSuccess
-    else exitFailure
+modelDump :: ByteString -> IO [String]
+modelDump bs =
+  fmap lines . withCreateProcess
+    (proc "hexdump" $ intersperse "-e"
+        [ "-v"
+        , "\"%04.4_ax:  \""
+        , "4/1 \"%02x \" \"  \" 4/1 \"%02x \" \"  \" 4/1 \"%02x \" \"  \" 4/1 \"%02x \"\"  \""
+        , "\"%_p\""
+        , "\"\\n\""
+        ])
+      { std_out = CreatePipe
+      , std_in = CreatePipe } $
+        \mhin mhout _ _ -> do
+          maybe (pure ()) (\h -> BS.hPut h bs >> hClose h) mhin
+          evaluate . force =<< maybe (pure "") hGetContents mhout
