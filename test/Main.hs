@@ -6,19 +6,30 @@ import Text.HexDump
 
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
+import Data.Bifunctor (second)
 import Data.ByteString (ByteString, useAsCStringLen)
-import Data.Foldable (for_)
+import Data.Char (isAscii, isHexDigit, isPrint, isSpace)
+import Data.Foldable (find, for_, traverse_)
 import Data.List (intersperse)
 import Data.Word (Word8)
 import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrArray, withForeignPtr)
 import Foreign.Marshal.Array (advancePtr, copyArray, peekArray)
 import Foreign.Ptr (castPtr)
+import GHC.Stack (HasCallStack)
 import System.IO (hClose, hGetContents)
 import System.Process (CreateProcess(..), StdStream(..), proc, withCreateProcess)
-import Test.Hspec (hspec, describe, it, runIO, shouldBe, shouldReturn)
+import Test.Hspec (Expectation, describe, expectationFailure, hspec, it, runIO, shouldBe, shouldReturn)
+import Test.Hspec.QuickCheck (modifyMaxSize, prop)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+
+shouldAllSatisfy :: (HasCallStack, Show a) => [a] -> (a -> Bool) -> Expectation
+shouldAllSatisfy v p = case find (not . p) v of
+  Just x -> expectationFailure $ "predicate failed on " ++ show x ++ " in " ++ show v
+  _ -> pure ()
+
+infix 1 `shouldAllSatisfy`
 
 testString :: ByteString
 testString = "\1\0\0\1*\0\0\2\3def\6pasta\7program\7program\4uuid\4uuid\f?\
@@ -47,6 +58,26 @@ testResult =
   , "00e0:  00 00 03 00  ff                                     |....."
   ]
 
+lineLengthFor :: Int -> Int
+lineLengthFor n = offsetLength + 3 + groups * (groupSize * byteWidth + 1) + 1 + n
+  where
+    offsetLength = 4
+    groups = 4
+    groupSize = 4
+    byteWidth = 3
+
+splitLine :: String -> (String, String, String)
+splitLine l = (offset, bytes, chars)
+  where
+    (offset, rest) = splitOn ':' l
+    (bytes, chars) = splitOn '|' rest
+    splitOn c = second (drop 1) . span (/= c)
+
+extractLineOffset, extractLineBytes, extractLineChars :: String -> String
+extractLineOffset l = let (o, _, _) = splitLine l in o
+extractLineBytes  l = let (_, b, _) = splitLine l in b
+extractLineChars  l = let (_, _, c) = splitLine l in c
+
 makeBuffer :: Int -> IO (ForeignPtr Word8)
 makeBuffer bufferSize = do
   buffer <- mallocForeignPtrArray bufferSize :: IO (ForeignPtr Word8)
@@ -60,7 +91,7 @@ makeBuffer bufferSize = do
   pure buffer
 
 main :: IO ()
-main = hspec $ describe "Text.HexDump" $ do
+main = hspec $ modifyMaxSize (*20) $ describe "Text.HexDump" $ do
 
   describe "Example tests" $ do
 
@@ -102,6 +133,40 @@ main = hspec $ describe "Text.HexDump" $ do
       it "modelDump matches hexDumpWords" $
         modelDump (BS.pack content)
         `shouldReturn` hexDumpWords content
+
+  describe "Property tests" $ do
+
+    describe "hexDumpWords" $ do
+
+      prop "has empty output iff the input is empty" $ \ws ->
+        null (hexDumpWords ws) `shouldBe` null ws
+
+      prop "has the right number of lines" $ \ws ->
+        let ls = hexDumpWords ws
+            m = length ws
+            n = length ls
+        in n `shouldBe` (m + 15) `div` 16
+
+      prop "has lines with the right lengths" $ \ws ->
+        let ls = hexDumpWords ws
+            m = length ws
+            ms = replicate (m `div` 16) 16 ++ filter (/= 0) [m `mod` 16]
+            ns = map length ls
+        in ns `shouldBe` map lineLengthFor ms
+
+      prop "contains only hex digits in the offset" $
+        traverse_ (\l -> extractLineOffset l `shouldAllSatisfy` isHexDigit) . hexDumpWords
+
+      let isHexOrSpace c = isHexDigit c || isSpace c
+      prop "contains only hex digits and spaces in the bytes" $
+        traverse_ (\l -> extractLineBytes l `shouldAllSatisfy` isHexOrSpace) . hexDumpWords
+
+      let isAsciiPrint c = isAscii c && isPrint c
+      prop "contains only printable ascii characters in the chars" $
+        traverse_ (\l -> extractLineChars l `shouldAllSatisfy` isAsciiPrint) . hexDumpWords
+
+      prop "matches the model" $ \ws ->
+        (hexDumpWords ws `shouldBe`) =<< modelDump (BS.pack ws)
 
 modelDump :: ByteString -> IO [String]
 modelDump bs =
