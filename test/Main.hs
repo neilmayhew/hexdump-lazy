@@ -6,17 +6,16 @@ import Text.HexDump
 
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
-import Control.Monad (unless)
 import Data.ByteString (ByteString, useAsCStringLen)
 import Data.Foldable (for_)
 import Data.List (intersperse)
 import Data.Word (Word8)
-import Foreign.Ptr (castPtr)
 import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrArray, withForeignPtr)
 import Foreign.Marshal.Array (advancePtr, copyArray, peekArray)
-import System.Exit
+import Foreign.Ptr (castPtr)
 import System.IO (hClose, hGetContents)
 import System.Process (CreateProcess(..), StdStream(..), proc, withCreateProcess)
+import Test.Hspec (hspec, describe, it, runIO, shouldBe, shouldReturn)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -61,36 +60,48 @@ makeBuffer bufferSize = do
   pure buffer
 
 main :: IO ()
-main = do
-  unless (hexDumpByteString testString == testResult)
-    exitFailure
+main = hspec $ describe "Text.HexDump" $ do
 
-  dump <- useAsCStringLen testString $
-    uncurry hexDumpPtr
+  describe "Example tests" $ do
 
-  unless (dump == testResult)
-    exitFailure
+    describe "Empty input" $ do
 
-  external <- modelDump testString
+      it "hexDumpWords has empty output" $
+        hexDumpWords [] `shouldBe` []
 
-  unless (dump == external) $
-    die . unlines $ [""] ++ dump ++ ["vs"] ++ external
+    describe "A test string" $ do
 
-  let bufferSize = 1 * 1024 + 19
+      it "hexDumpByteString matches the expected result" $
+        hexDumpByteString testString `shouldBe` testResult
 
-  buffer <- makeBuffer bufferSize
+      it "hexDumpPtr matches the expected result" $
+        useAsCStringLen testString (uncurry hexDumpPtr)
+          `shouldReturn` testResult
 
-  let dump0 = hexDumpWords . BL.unpack . BL.take (fromIntegral bufferSize) . BL.cycle
-        $ BL.fromStrict testString
+      it "modelDump matches the expected result" $
+        modelDump testString `shouldReturn` testResult
 
-  dump1 <- withForeignPtr buffer $ \ptr ->
-    hexDumpPtr ptr bufferSize
+    describe "A buffer" $ do
+      let
+        bufferSize = 1 * 1024 + 19
 
-  dump2 <- withForeignPtr buffer $
-    fmap hexDumpWords . peekArray bufferSize
+        expected = BL.unpack . BL.take (fromIntegral bufferSize) . BL.cycle
+          $ BL.fromStrict testString
 
-  unless (dump0 == dump1 && dump1 == dump2)
-    exitFailure
+      buffer <- runIO $ makeBuffer bufferSize
+
+      content <- runIO $ withForeignPtr buffer $ peekArray bufferSize
+
+      it "has the correct content" $
+        content `shouldBe` expected
+
+      it "hexDumpPtr matches hexDumpWords" $
+        withForeignPtr buffer (`hexDumpPtr` bufferSize)
+          `shouldReturn` hexDumpWords content
+
+      it "modelDump matches hexDumpWords" $
+        modelDump (BS.pack content)
+        `shouldReturn` hexDumpWords content
 
 modelDump :: ByteString -> IO [String]
 modelDump bs =
