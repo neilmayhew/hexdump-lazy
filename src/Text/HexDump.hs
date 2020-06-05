@@ -32,7 +32,7 @@ hexDumpLineS offset ws =
       ((\b -> showChar $ if ord ' ' <= b && b <= ord '~' then chr b else '.') . fromIntegral)
       ws
   in
-    showHex offsetWidth offset . showString ":  " . showBytes . showChars
+    showHex offsetWidth offset . showString ":  " . showBytes . showString "|" . showChars
 
 hexDumpLine :: (Integral a, Bits a) => a -> [Word8] -> String
 hexDumpLine offset ws = hexDumpLineS offset ws ""
