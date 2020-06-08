@@ -1,1 +1,4 @@
 resolver: lts-15.13
+docker:
+  enable: false
+  image: hexdump-lazy/stack-base
