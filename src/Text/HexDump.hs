@@ -23,14 +23,15 @@ groupWidth = 4
 hexDumpLineS :: (Integral a, Bits a) => a -> [Word8] -> ShowS
 hexDumpLineS offset ws =
   let
-    showBytes = foldS (\mws -> foldS (\mws' -> maybe (showString "  ") (showHex 2) mws' . showChar ' ') mws . showChar ' ')
+    showBytes = foldS showByteGroup
       . chunksOf groupWidth
       . take lineLength
       $ map Just ws ++ repeat Nothing
+    showByteGroup mws = foldS showByte mws . showChar ' '
+    showByte mw = maybe (showString "  ") (showHex 2) mw . showChar ' '
 
-    showChars = foldS
-      ((\b -> showChar $ if ord ' ' <= b && b <= ord '~' then chr b else '.') . fromIntegral)
-      ws
+    showChars = foldS (showChar . toPrintable) ws
+    toPrintable (fromIntegral -> b) = if ord ' ' <= b && b <= ord '~' then chr b else '.'
   in
     showHex offsetWidth offset . showString ":  " . showBytes . showString "|" . showChars
 
