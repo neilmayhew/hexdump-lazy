@@ -1,4 +1,7 @@
 resolver: lts-15.13
+nix:
+  enable: false
+  packages: [utillinux]
 docker:
   enable: false
   image: hexdump-lazy/stack-base
