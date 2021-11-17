@@ -2,9 +2,9 @@ name: Haskell CI
 
 on:
   push:
-    branches: [main]
+    branches: [develop, main, master]
   pull_request:
-    branches: [main]
+    branches: [develop, main, master]
   schedule:
   - cron: "3 14 15 * *"  # 14:03 on the 15th of every month (UTC)
 
