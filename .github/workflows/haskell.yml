@@ -15,13 +15,13 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@main
 
     - name: Haskell setup
       uses: haskell/actions/setup@main
 
     - name: Cache
-      uses: actions/cache@v1
+      uses: actions/cache@main
       env:
         cache-name: cache-cabal
       with:
