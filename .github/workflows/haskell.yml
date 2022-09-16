@@ -5,6 +5,7 @@ on:
     branches: [develop, main, master]
   pull_request:
     branches: [develop, main, master]
+  workflow_dispatch:  # For manual triggering
   schedule:
   - cron: "3 14 15 * *"  # 14:03 on the 15th of every month (UTC)
 
@@ -12,16 +13,17 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ghc: ['8.8.4', '8.10.7', '9.0.2', '9.2.4']
 
+    name: Build with GHC ${{ matrix.ghc }}
     steps:
     - name: Checkout
-      uses: actions/checkout@main
-
-    - name: Haskell setup
-      uses: haskell/actions/setup@main
+      uses: actions/checkout@v3
 
     - name: Cache
-      uses: actions/cache@main
+      uses: actions/cache@v3
       env:
         cache-name: cache-cabal
       with:
@@ -31,14 +33,19 @@ jobs:
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-
           ${{ runner.os }}-
+    - name: Haskell setup
+      uses: haskell/actions/setup@main
+      with:
+        ghc-version: ${{ matrix.ghc }}
 
     - name: Install dependencies
       run: |
         cabal update
-        cabal build --only-dependencies --enable-tests --enable-benchmarks
+        cabal build --enable-tests --enable-benchmarks -f werror --only-dependencies
 
     - name: Build
-      run: cabal build --enable-tests --enable-benchmarks -f werror all
+      run: |
+        cabal build --enable-tests --enable-benchmarks -f werror all
 
     - name: Run tests
       run: cabal test all
