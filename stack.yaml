@@ -1,4 +1,4 @@
-resolver: lts-15.16
+resolver: lts-21.25
 nix:
   enable: false
   packages: [utillinux]
