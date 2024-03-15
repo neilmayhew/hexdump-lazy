@@ -21,10 +21,10 @@ jobs:
     name: Build with GHC ${{ matrix.ghc }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       env:
         cache-name: cache-cabal
       with:
